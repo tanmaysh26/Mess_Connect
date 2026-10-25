@@ -1,0 +1,21 @@
+{
+  "name": "messconnect",
+  "version": "1.0.0",
+  "description": "Beginner-friendly Mess Feedback Management System prototype",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js",
+    "postinstall": "npm --prefix client install",
+    "build": "npm --prefix client run build",
+    "dev:client": "npm --prefix client run dev"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "connect-mongo": "^5.1.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "mongoose": "^8.9.5"
+  }
+}
