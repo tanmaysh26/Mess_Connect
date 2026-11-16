@@ -7,10 +7,13 @@ A beginner-friendly Mess Feedback Management System built with React (Vite), Tai
 - **UC-001:** Student/Admin login
 - **UC-002:** Student submits a meal rating from 1 to 5
 - **UC-003:** Student submits a complaint; new complaints start as `Pending`
+- **UC-004:** Student views their own rating and complaint history, with each complaint's current status
 - **UC-005:** Admin views all meal ratings and complaints
+- **UC-006:** Admin opens a complaint and changes its status (Pending / In Progress / Resolved); every change is recorded with the admin's name and time
+- **UC-007:** Admin views a summary: average rating per meal and complaint counts by status
 - **UC-008:** Student/Admin logout
 
-Not included: registration, student history, complaint status editing, summary reports, or other use cases.
+Not included: self-registration and a separate Warden login (the summary is shown to the Admin role).
 
 ## Requirements
 
@@ -120,17 +123,19 @@ npm run dev:client   # terminal 2: React app on http://localhost:5173
 
 Open http://localhost:5173. Vite forwards `/api` requests to the Express server.
 
-## How to test the five use cases
+## How to test the use cases
 
 1. Open `http://localhost:3000`.
 2. Log in with `24ucs023@lnmiit.ac.in` and password `Student123!`.
 3. Submit a meal rating: select a meal, date and rating from 1 to 5.
 4. Submit a complaint with a category and description. It should be saved with `Pending` status.
-5. Log out.
-6. Log in with `tanmaysharma@lnmiit.ac.in` and password `Admin123!`.
-7. Check that the admin page shows the meal rating and complaint you submitted.
-8. Log out.
-9. Optional access-control checks: try logging in with an email outside the allowlist (it should be rejected), then log in as Student and manually open `/admin`. The app should redirect the student to the student page, and the server also rejects admin-only data requests.
+5. Scroll to **My history**: the complaint (status `Pending`) and the rating appear in their tabs.
+6. Log out.
+7. Log in with `tanmaysharma@lnmiit.ac.in` and password `Admin123!`.
+8. Check that the admin page shows the meal rating and complaint you submitted, and that the summary cards show the meal averages and complaint counts by status.
+9. Open the **Complaints** tab, click **Open** on the complaint, choose `In Progress` and click **Save status**. The change appears in the status history with your name and the time. Saving the same status again is not allowed.
+10. Log out, log back in as the student, and check that **My history** shows the new status and update time.
+11. Optional access-control checks: try logging in with an email outside the allowlist (it should be rejected), then log in as Student and manually open `/admin`. The app should redirect the student to the student page, and the server also rejects admin-only data requests.
 
 ## Project structure
 
@@ -143,7 +148,8 @@ messconnect/
 ├── models/
 │   ├── User.js
 │   ├── MealRating.js
-│   └── Complaint.js
+│   ├── Complaint.js
+│   └── StatusHistory.js    one record per complaint status change
 └── client/                 React frontend (Vite)
     ├── index.html
     ├── vite.config.js
@@ -152,8 +158,8 @@ messconnect/
         ├── App.jsx           routes + login state
         ├── api.js            fetch helper
         ├── index.css         Tailwind import + colour theme
-        ├── components/       Layout, StarRating, Notice, Spinner
-        └── pages/            Login, Student, Admin
+        ├── components/       Layout, StarRating, Notice, Spinner, Pills, Table
+        └── pages/            Login, Student, Admin, ComplaintDetail
 ```
 
 ## Notes
@@ -161,4 +167,5 @@ messconnect/
 - Passwords are hashed with bcryptjs.
 - Login state is stored in server-side sessions; session records are stored in MongoDB.
 - Role checks happen on the server, not only in the UI.
+- A status change only saves if the complaint still has the status the admin saw, so two admins saving at once cannot both succeed (the second gets "updated by another admin"). Local MongoDB has no transactions, so if writing the history record fails the status is put back.
 - This is a local learning prototype, not a production-ready deployment. Before public deployment, use HTTPS, a strong secret, secure cookie settings, CSRF protection, rate limiting and a carefully configured database/network.

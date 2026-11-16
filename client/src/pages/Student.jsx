@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { api } from "../api.js";
+import { useCallback, useEffect, useState } from "react";
+import { api, formatDate, formatDateTime } from "../api.js";
 import { useAuth } from "../App.jsx";
 import Layout from "../components/Layout.jsx";
 import Notice from "../components/Notice.jsx";
+import { MealPill, StatusPill } from "../components/Pills.jsx";
 import Spinner from "../components/Spinner.jsx";
-import StarRating from "../components/StarRating.jsx";
+import StarRating, { Stars } from "../components/StarRating.jsx";
+import Table, { Tab } from "../components/Table.jsx";
 
 const MEALS = [
   { name: "Breakfast", icon: "☕" },
@@ -43,7 +45,7 @@ function CardHeader({ icon, iconClass, title, subtitle }) {
   );
 }
 
-function RatingForm() {
+function RatingForm({ onSaved }) {
   const [mealType, setMealType] = useState(currentMeal);
   const [mealDate, setMealDate] = useState(today);
   const [rating, setRating] = useState(0);
@@ -58,6 +60,7 @@ function RatingForm() {
       const data = await api("/api/ratings", { method: "POST", body: { mealType, mealDate, rating } });
       setNotice({ type: "success", text: data.message });
       setRating(0);
+      onSaved();
     } catch (error) {
       setNotice({ type: "error", text: error.message });
     } finally {
@@ -110,7 +113,7 @@ function RatingForm() {
   );
 }
 
-function ComplaintForm() {
+function ComplaintForm({ onSaved }) {
   const [category, setCategory] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
@@ -125,6 +128,7 @@ function ComplaintForm() {
       setNotice({ type: "success", text: `${data.message} It is now marked as Pending.` });
       setCategory("");
       setDescription("");
+      onSaved();
     } catch (error) {
       setNotice({ type: "error", text: error.message });
     } finally {
@@ -179,8 +183,77 @@ function ComplaintForm() {
   );
 }
 
+// UC-004: the student's own complaints (with current status) and ratings.
+function MyHistory({ history, error }) {
+  const [tab, setTab] = useState("complaints");
+
+  return (
+    <section className="mt-5 overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 border-b border-line px-4">
+        <h2 className="py-4 text-lg font-bold tracking-tight">My history</h2>
+        {history && (
+          <div role="tablist" className="flex gap-1">
+            <Tab active={tab === "complaints"} onClick={() => setTab("complaints")} label="Complaints" count={history.complaints.length} />
+            <Tab active={tab === "ratings"} onClick={() => setTab("ratings")} label="Ratings" count={history.ratings.length} />
+          </div>
+        )}
+      </div>
+
+      {error && <p role="alert" className="m-4 rounded-xl bg-danger-soft px-3.5 py-3 text-sm font-medium text-danger">{error}</p>}
+      {!history && !error && <div className="grid place-items-center py-12 text-primary"><Spinner size="lg" /></div>}
+
+      {history && tab === "complaints" && (
+        <Table
+          headers={["Category", "Description", "Status", "Submitted", "Last updated"]}
+          empty={history.complaints.length === 0 && "You have not submitted any complaints yet."}
+        >
+          {history.complaints.map((c) => (
+            <tr key={c.id}>
+              <td className="font-semibold whitespace-nowrap">{c.category}</td>
+              <td className="min-w-65 max-w-105 whitespace-pre-wrap [overflow-wrap:anywhere]">{c.description}</td>
+              <td><StatusPill status={c.status} /></td>
+              <td className="whitespace-nowrap text-muted">{formatDateTime(c.createdAt)}</td>
+              <td className="whitespace-nowrap text-muted">{formatDateTime(c.updatedAt)}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+
+      {history && tab === "ratings" && (
+        <Table
+          headers={["Meal", "Meal date", "Rating", "Submitted"]}
+          empty={history.ratings.length === 0 && "You have not rated any meals yet."}
+        >
+          {history.ratings.map((r) => (
+            <tr key={r.id}>
+              <td><MealPill meal={r.mealType} /></td>
+              <td className="whitespace-nowrap">{formatDate(r.mealDate)}</td>
+              <td><Stars value={r.rating} /></td>
+              <td className="whitespace-nowrap text-muted">{formatDateTime(r.createdAt)}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </section>
+  );
+}
+
 export default function Student() {
   const { user } = useAuth();
+  const [history, setHistory] = useState(null);
+  const [historyError, setHistoryError] = useState("");
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setHistory(await api("/api/my/history"));
+      setHistoryError("");
+    } catch (error) {
+      setHistoryError(error.message);
+    }
+  }, []);
+
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
   return (
     <Layout
       eyebrow="Student portal"
@@ -188,9 +261,10 @@ export default function Student() {
       subtitle="Your feedback goes straight to the mess team and helps improve every meal."
     >
       <div className="grid gap-5 lg:grid-cols-2">
-        <RatingForm />
-        <ComplaintForm />
+        <RatingForm onSaved={loadHistory} />
+        <ComplaintForm onSaved={loadHistory} />
       </div>
+      <MyHistory history={history} error={historyError} />
     </Layout>
   );
 }

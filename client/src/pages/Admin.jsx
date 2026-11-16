@@ -1,21 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, formatDate, formatDateTime } from "../api.js";
 import Layout from "../components/Layout.jsx";
+import { MEALS, MealPill, STATUSES, StatusPill } from "../components/Pills.jsx";
 import Spinner from "../components/Spinner.jsx";
 import { Stars } from "../components/StarRating.jsx";
+import Table, { Tab } from "../components/Table.jsx";
 
-const MEALS = ["Breakfast", "Lunch", "Dinner"];
 const CATEGORIES = ["Food Quality", "Cleanliness", "Staff Behaviour", "Other"];
 
-const MEAL_PILLS = {
-  Breakfast: "bg-warn-soft text-warn",
-  Lunch: "bg-primary-soft text-primary",
-  Dinner: "bg-accent-soft text-accent"
-};
-const STATUS_PILLS = {
-  Pending: "bg-warn-soft text-warn",
-  "In Progress": "bg-accent-soft text-accent",
-  Resolved: "bg-success-soft text-success"
+const STATUS_BARS = {
+  Pending: "bg-warn",
+  "In Progress": "bg-accent",
+  Resolved: "bg-success"
 };
 
 function average(list) {
@@ -54,18 +51,30 @@ function BarList({ title, items }) {
   );
 }
 
-function MealBreakdown({ ratings }) {
+// Average rating per meal type, as calculated by the server summary (FR-013).
+function MealBreakdown({ averageByMeal }) {
   const items = MEALS.map((meal) => {
-    const forMeal = ratings.filter((r) => r.mealType === meal);
-    const avg = average(forMeal);
+    const { average: avg, count } = averageByMeal[meal];
     return {
       label: meal,
-      detail: avg ? `${avg.toFixed(1)} · ${forMeal.length} rating${forMeal.length === 1 ? "" : "s"}` : "No ratings",
+      detail: avg ? `${avg.toFixed(1)} · ${count} rating${count === 1 ? "" : "s"}` : "No ratings",
       percent: ((avg || 0) / 5) * 100,
       barClass: "bg-linear-to-r from-star to-primary"
     };
   });
   return <BarList title="Average by meal" items={items} />;
+}
+
+// Complaint counts per status, as calculated by the server summary (FR-014).
+function StatusBreakdown({ complaintCounts }) {
+  const max = Math.max(1, ...STATUSES.map((status) => complaintCounts[status]));
+  const items = STATUSES.map((status) => ({
+    label: status,
+    detail: complaintCounts[status],
+    percent: (complaintCounts[status] / max) * 100,
+    barClass: STATUS_BARS[status]
+  }));
+  return <BarList title="Complaints by status" items={items} />;
 }
 
 function CategoryBreakdown({ complaints }) {
@@ -80,38 +89,23 @@ function CategoryBreakdown({ complaints }) {
   return <BarList title="Complaints by category" items={items} />;
 }
 
-function Toolbar({ search, onSearch, placeholder, filter, onFilter, options, filterLabel, allLabel }) {
+function FilterSelect({ value, onChange, options, label, allLabel }) {
+  return (
+    <select className="input w-auto min-w-35" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}>
+      <option value="">{allLabel}</option>
+      {options.map((option) => <option key={option}>{option}</option>)}
+    </select>
+  );
+}
+
+function Toolbar({ search, onSearch, placeholder, children }) {
   return (
     <div className="flex flex-wrap gap-2.5 border-b border-line p-4">
       <input
         type="search" className="input max-w-90 flex-[1_1_220px]" placeholder={placeholder}
         value={search} onChange={(e) => onSearch(e.target.value)}
       />
-      <select className="input w-auto min-w-35" value={filter} onChange={(e) => onFilter(e.target.value)} aria-label={filterLabel}>
-        <option value="">{allLabel}</option>
-        {options.map((option) => <option key={option}>{option}</option>)}
-      </select>
-    </div>
-  );
-}
-
-function Table({ headers, empty, children }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr>
-            {headers.map((h) => (
-              <th key={h} className="bg-surface-2 px-4 py-3.5 text-left text-xs font-semibold tracking-wider whitespace-nowrap text-muted uppercase">{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="[&>tr]:border-t [&>tr]:border-line [&>tr:hover]:bg-surface-2/60 [&_td]:px-4 [&_td]:py-3.5 [&_td]:align-top">
-          {empty ? (
-            <tr><td colSpan={headers.length} className="py-12! text-center text-muted">{empty}</td></tr>
-          ) : children}
-        </tbody>
-      </table>
+      {children}
     </div>
   );
 }
@@ -125,10 +119,9 @@ function RatingsTable({ ratings }) {
 
   return (
     <>
-      <Toolbar
-        search={search} onSearch={setSearch} placeholder="Search by student"
-        filter={meal} onFilter={setMeal} options={MEALS} filterLabel="Filter by meal" allLabel="All meals"
-      />
+      <Toolbar search={search} onSearch={setSearch} placeholder="Search by student">
+        <FilterSelect value={meal} onChange={setMeal} options={MEALS} label="Filter by meal" allLabel="All meals" />
+      </Toolbar>
       <Table
         headers={["Student", "Meal", "Meal date", "Rating", "Submitted"]}
         empty={rows.length === 0 && (ratings.length ? "No ratings match your filters." : "No ratings yet.")}
@@ -136,7 +129,7 @@ function RatingsTable({ ratings }) {
         {rows.map((r) => (
           <tr key={r.id}>
             <td className="font-semibold">{r.studentName}</td>
-            <td><span className={`pill ${MEAL_PILLS[r.mealType]}`}>{r.mealType}</span></td>
+            <td><MealPill meal={r.mealType} /></td>
             <td className="whitespace-nowrap">{formatDate(r.mealDate)}</td>
             <td><Stars value={r.rating} /></td>
             <td className="whitespace-nowrap text-muted">{formatDateTime(r.createdAt)}</td>
@@ -149,21 +142,23 @@ function RatingsTable({ ratings }) {
 
 function ComplaintsTable({ complaints }) {
   const [category, setCategory] = useState("");
+  const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const query = search.toLowerCase();
   const rows = complaints.filter((c) =>
     (!category || c.category === category) &&
+    (!status || c.status === status) &&
     (c.studentName.toLowerCase().includes(query) || c.description.toLowerCase().includes(query))
   );
 
   return (
     <>
-      <Toolbar
-        search={search} onSearch={setSearch} placeholder="Search student or description"
-        filter={category} onFilter={setCategory} options={CATEGORIES} filterLabel="Filter by category" allLabel="All categories"
-      />
+      <Toolbar search={search} onSearch={setSearch} placeholder="Search student or description">
+        <FilterSelect value={status} onChange={setStatus} options={STATUSES} label="Filter by status" allLabel="All statuses" />
+        <FilterSelect value={category} onChange={setCategory} options={CATEGORIES} label="Filter by category" allLabel="All categories" />
+      </Toolbar>
       <Table
-        headers={["Student", "Category", "Description", "Status", "Submitted"]}
+        headers={["Student", "Category", "Description", "Status", "Submitted", ""]}
         empty={rows.length === 0 && (complaints.length ? "No complaints match your filters." : "No complaints yet.")}
       >
         {rows.map((c) => (
@@ -171,12 +166,11 @@ function ComplaintsTable({ complaints }) {
             <td className="font-semibold">{c.studentName}</td>
             <td>{c.category}</td>
             <td className="min-w-65 max-w-105 whitespace-pre-wrap [overflow-wrap:anywhere]">{c.description}</td>
-            <td>
-              <span className={`pill inline-flex items-center gap-1.5 before:size-1.5 before:rounded-full before:bg-current ${STATUS_PILLS[c.status]}`}>
-                {c.status}
-              </span>
-            </td>
+            <td><StatusPill status={c.status} /></td>
             <td className="whitespace-nowrap text-muted">{formatDateTime(c.createdAt)}</td>
+            <td>
+              <Link to={`/admin/complaints/${c.id}`} className="btn-ghost min-h-9 px-3.5 text-sm">Open</Link>
+            </td>
           </tr>
         ))}
       </Table>
@@ -184,30 +178,25 @@ function ComplaintsTable({ complaints }) {
   );
 }
 
-function Tab({ active, onClick, label, count }) {
-  return (
-    <button
-      role="tab" aria-selected={active} onClick={onClick}
-      className={`-mb-px flex cursor-pointer items-center gap-2 border-b-2 px-3 py-4 font-semibold whitespace-nowrap ${
-        active ? "border-primary text-ink" : "border-transparent text-muted hover:text-ink"
-      }`}
-    >
-      {label}
-      <span className={`rounded-full px-2 text-xs ${active ? "bg-primary-soft text-primary" : "bg-surface-2"}`}>{count}</span>
-    </button>
-  );
-}
-
 export default function Admin() {
   const [data, setData] = useState(null);
+  const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("ratings");
+  // The open tab lives in the URL so "Back to complaints" from the detail page lands on it.
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "complaints" ? "complaints" : "ratings";
+  const setTab = (name) => setParams(name === "ratings" ? {} : { tab: name }, { replace: true });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api("/api/admin/submissions"));
+      const [submissions, summaryData] = await Promise.all([
+        api("/api/admin/submissions"),
+        api("/api/admin/summary")
+      ]);
+      setData(submissions);
+      setSummary(summaryData);
       setError("");
     } catch (err) {
       setError(err.message);
@@ -219,15 +208,15 @@ export default function Admin() {
   useEffect(() => { load(); }, [load]);
 
   const stats = useMemo(() => {
-    if (!data) return null;
+    if (!data || !summary) return null;
     const avg = average(data.ratings);
     return {
       avg: avg ? avg.toFixed(1) : "—",
       ratings: data.ratings.length,
-      complaints: data.complaints.length,
-      pending: data.complaints.filter((c) => c.status === "Pending").length
+      complaints: summary.complaintCounts.total,
+      pending: summary.complaintCounts.Pending
     };
-  }, [data]);
+  }, [data, summary]);
 
   const refreshButton = (
     <button className="btn-ghost" onClick={load} disabled={loading}>
@@ -247,7 +236,7 @@ export default function Admin() {
 
       {!data && loading && <div className="grid place-items-center py-20 text-primary"><Spinner size="lg" /></div>}
 
-      {data && (
+      {data && summary && (
         <>
           <section className="mb-5 grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatCard label="Average rating" value={stats.avg} hint="out of 5" valueClass="text-primary" />
@@ -256,8 +245,9 @@ export default function Admin() {
             <StatCard label="Pending" value={stats.pending} hint="awaiting action" valueClass={stats.pending ? "text-warn" : ""} />
           </section>
 
-          <section className="mb-5 grid gap-5 lg:grid-cols-2">
-            <MealBreakdown ratings={data.ratings} />
+          <section className="mb-5 grid gap-5 lg:grid-cols-3">
+            <MealBreakdown averageByMeal={summary.averageByMeal} />
+            <StatusBreakdown complaintCounts={summary.complaintCounts} />
             <CategoryBreakdown complaints={data.complaints} />
           </section>
 

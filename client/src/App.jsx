@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import Login from "./pages/Login.jsx";
 import Student from "./pages/Student.jsx";
 import Admin from "./pages/Admin.jsx";
+import ComplaintDetail from "./pages/ComplaintDetail.jsx";
 import Spinner from "./components/Spinner.jsx";
 
 const AuthContext = createContext(null);
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/login" element={user ? <Navigate to={homeFor(user)} replace /> : <Login />} />
         <Route path="/student" element={<Protected role="Student"><Student /></Protected>} />
         <Route path="/admin" element={<Protected role="Admin"><Admin /></Protected>} />
+        <Route path="/admin/complaints/:id" element={<Protected role="Admin"><ComplaintDetail /></Protected>} />
         <Route path="*" element={<Navigate to={homeFor(user)} replace />} />
       </Routes>
     </AuthContext.Provider>
